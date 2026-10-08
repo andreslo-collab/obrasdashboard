@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ENUE Obras — Dashboard de certificaciones (v3.0)</title>
+<title>ENUE Obras — Dashboard de certificaciones (v3.2)</title>
 <!-- Archivo autocontenido: no necesita internet salvo para leer PDF (PDF.js). -->
 <style>
 /*__CSS_INICIO__*/
@@ -2773,7 +2773,7 @@ button:disabled { opacity: .6; cursor: default; }
     'use strict';
 
     var DB_KEY = 'enue_dashboards_v2';
-    var VERSION = '3.0';
+    var VERSION = '3.2';
 
     var ZONAS = [
         { id: 'pdf1', etiqueta: 'PDF 1 · Certificación actual', acepta: '.pdf', tipo: 'pdf', parser: 'certificacion' },
@@ -3378,29 +3378,38 @@ button:disabled { opacity: .6; cursor: default; }
         var d = datos();
         var id = state.identificador || 'Obra sin identificar';
         var publicada = (typeof location !== 'undefined') && /^https?:/.test(location.protocol);
+        var soloLectura = state.vista === 'enlace';
 
         var avisos = [];
         ['pdf1', 'pdf2', 'pdf3', 'pdf4', 'excel5'].forEach(function (z) {
             var r = state.extraido[z];
             if (r && r.avisos && r.avisos.length) { avisos = avisos.concat(r.avisos); }
         });
-        if (!state.usaPdfJs) { avisos.unshift('El lector de PDF no se pudo cargar desde internet: los datos se han tomado del texto pegado a mano.'); }
+        if (!soloLectura && !state.usaPdfJs) { avisos.unshift('El lector de PDF no se pudo cargar desde internet: los datos se han tomado del texto pegado a mano.'); }
 
         var tabs = DXReport.PESTANAS.map(function (t) {
             return '<button class="tab' + (state.pestana === t.id ? ' activa' : '') + '" data-tab="' + t.id + '">' + t.etiqueta + '</button>';
         }).join('');
 
+        // Cuando el dashboard llega por enlace, el cliente lo ve en solo lectura:
+        // sin botones de edición ni de generación.
+        var botones = soloLectura
+            ? '<div class="dash-botones">' +
+              '<button id="btn-imprimir" class="btn-sec">🖨️ Imprimir / PDF</button></div>'
+            : '<div class="dash-botones">' +
+              '<button id="btn-enlace-largo" class="btn-primario">🔗 Generar enlace para el cliente</button>' +
+              '<button id="btn-exportar" class="btn-sec">⬇️ Informe</button>' +
+              '<button id="btn-volver-validacion" class="btn-sec">← Volver a validación</button>' +
+              '<button id="btn-nuevo" class="btn-sec">＋ Nueva quincena</button>' +
+              '</div>';
+
         return '<div class="dash">' +
             '<div class="dash-cabecera">' +
-            '<div><span class="dash-chip">Vista de dirección · solo lectura</span>' +
+            '<div><span class="dash-chip">' + (soloLectura ? 'Informe recibido · solo lectura' : 'Vista de dirección · solo lectura') + '</span>' +
             '<h1>Informe ejecutivo de quincena</h1>' +
             '<p>' + esc(id) + (state.periodo ? ' · ' + esc(state.periodo) : '') + '</p></div>' +
-            '<div class="dash-botones">' +
-            '<button id="btn-enlace-largo" class="btn-primario">🔗 Generar enlace para el cliente</button>' +
-            '<button id="btn-exportar" class="btn-sec">⬇️ Informe</button>' +
-            '<button id="btn-volver-validacion" class="btn-sec">← Volver a validación</button>' +
-            '<button id="btn-nuevo" class="btn-sec">＋ Nueva quincena</button>' +
-            '</div></div>' +
+            botones + '</div>' +
+            (soloLectura ? '' :
             '<details class="dash-compartir"' + (state.abrirCompartir ? ' open' : '') + '>' +
             '<summary>📤 Enviar al cliente: cómo funciona el enlace</summary>' +
             (publicada
@@ -3435,8 +3444,8 @@ button:disabled { opacity: .6; cursor: default; }
             'con el dashboard y los datos dentro.</p>' +
             '<button class="btn-sec" id="btn-exportar2">⬇️ Descargar informe</button>' +
             '</div>' +
-            '</div></details>' +
-            (avisos.length ? '<details class="dash-avisos"><summary>' + avisos.length + ' aviso(s) de extracción — revisar antes de compartir</summary><ul>' +
+            '</div></details>') +
+            (avisos.length && !soloLectura ? '<details class="dash-avisos"><summary>' + avisos.length + ' aviso(s) de extracción — revisar antes de compartir</summary><ul>' +
                 avisos.map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') + '</ul></details>' : '') +
             '<div class="tabs">' + tabs + '</div>' +
             '<div class="dash-cuerpo">' + (RENDER[state.pestana] || RENDER.resumen)() + '</div>' +
@@ -3507,6 +3516,29 @@ button:disabled { opacity: .6; cursor: default; }
     function render() {
         var root = $('root');
         if (!root) { return; }
+
+        // --- Modo enlace: el cliente que abre el enlace ve SOLO el informe.
+        if (state.cargando || state.vista === 'enlace') {
+            var soloLectura = state.vista === 'enlace';
+            var idv = state.identificador || '';
+            var cuerpoL = state.cargando
+                ? '<div class="gen-card centro"><h2>Abriendo el informe…</h2>' +
+                  '<p class="nota-pie">Leyendo los datos que vienen dentro del enlace.</p></div>'
+                : vistaDashboard();
+            root.innerHTML =
+                '<header class="cabecera"><div class="cabecera-in">' +
+                '<div class="marca"><span class="logo">EN</span>' +
+                '<div><strong>ENUE Obras</strong><small>' + esc(idv || 'Informe de obra') + '</small></div></div>' +
+                '<span class="chip-lector">' + (soloLectura ? 'Informe de dirección · solo lectura' : 'cargando…') + '</span>' +
+                '</div></header>' +
+                (state.avisoGlobal ? '<div class="aviso-global">⚠️ ' + esc(state.avisoGlobal) + '</div>' : '') +
+                '<main class="contenido">' + cuerpoL + '</main>' +
+                '<footer class="pie"><span>© ' + new Date().getFullYear() + ' ENUE Obras</span>' +
+                '<span>Informe recibido por enlace</span></footer>';
+            enlazar();
+            return;
+        }
+
         var cuerpo = '';
         if (state.vista === 'generador') { cuerpo = vistaGenerador(); }
         else if (state.vista === 'procesando') { cuerpo = vistaProcesando(); }
@@ -3637,6 +3669,8 @@ button:disabled { opacity: .6; cursor: default; }
         });
         el = $('btn-volver-validacion');
         if (el) { el.onclick = function () { state.vista = 'validacion'; render(); }; }
+        el = $('btn-imprimir');
+        if (el) { el.onclick = function () { window.print(); }; }
         el = $('btn-nuevo');
         if (el) { el.onclick = function () { nuevaQuincena(); }; }
         el = $('btn-compartir');
@@ -3928,17 +3962,57 @@ button:disabled { opacity: .6; cursor: default; }
 
     /* -------------------------------------------------------------------- inicio */
 
-    function inicio() {
+    /**
+     * Si la URL trae un dashboard (enlace generado con «Generar enlace para el
+     * cliente»), se abre directamente en modo solo lectura. Esto es lo que hace
+     * que el enlace funcione al abrirlo en el móvil del cliente.
+     * Acepta las dos formas:  .../#d=1:xxxx   y   .../?d=1:xxxx
+     */
+    async function abrirDesdeUrl() {        var hash = (typeof location !== 'undefined' && location.hash) ? location.hash : '';
+        var search = (typeof location !== 'undefined' && location.search) ? location.search : '';
+        var cadena = null;
+        if (hash.indexOf('#d=') === 0) { cadena = hash.slice(3); }
+        else if (search.indexOf('d=') !== -1) {
+            var mm = search.match(/[?&]d=([^&]+)/);
+            if (mm) { cadena = decodeURIComponent(mm[1]); }
+        }
+        if (!cadena) { return false; }
+        state.cargando = true;
+        render();
+        try {
+            var datos = await DXExport.decodificarDatos(cadena);
+            if (!datos) { throw new Error('el enlace no contiene datos'); }
+            state.datos = datos;
+            state.identificador = datos.identificador || 'Informe de obra';
+            state.periodo = datos.periodo || '';
+            state.pestana = 'resumen';
+            state.vista = 'enlace';           // modo solo lectura
+            state.cargando = false;
+            render();
+            return true;
+        } catch (err) {
+            state.cargando = false;
+            state.avisoGlobal = 'No se ha podido leer el enlace: ' + (err.message || err) +
+                '. Puede que se haya cortado al copiarlo. Pide que te lo vuelvan a enviar completo.';
+            state.vista = 'generador';
+            render();
+            return false;
+        }
+    }
+
+    // `listo` permite saber (y probar) cuándo la app ha terminado de arrancar y,
+    // si la URL traía un dashboard, cuándo ha terminado de abrirlo.
+    var listo = (function () {
         cargarHistorial();
         // PDF.js se carga de forma perezosa: solo cuando se procesa un PDF.
         // Así la app arranca al instante aunque no haya internet.
         render();
-    }
+        return Promise.resolve().then(abrirDesdeUrl).then(function (abierto) {
+            return abierto;
+        }).catch(function () { return false; });
+    })();
 
-    if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', inicio); }
-    else { inicio(); }
-
-    window.__ENUE__ = { state: state, render: render, DX: DX };
+    window.__ENUE__ = { state: state, render: render, DX: DX, listo: listo };
 
 })();
 
